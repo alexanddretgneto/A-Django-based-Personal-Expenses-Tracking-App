@@ -238,32 +238,50 @@ def expense_month(request):
 
 
 def stats(request):
-    if request.session.has_key('is_logged') :
+    if request.session.has_key('is_logged'):
         todays_date = datetime.date.today()
-        one_month_ago = todays_date-datetime.timedelta(days=30)
+        one_month_ago = todays_date - datetime.timedelta(days=30)
         user_id = request.session["user_id"]
         user1 = User.objects.get(id=user_id)
-        addmoney_info = Addmoney_info.objects.filter(user = user1,Date__gte=one_month_ago,Date__lte=todays_date)
-        sum = 0 
+
+        # Filtra as informações financeiras do último mês
+        addmoney_info = Addmoney_info.objects.filter(user=user1, Date__gte=one_month_ago, Date__lte=todays_date)
+
+        # Cálculo da soma das despesas e rendas
+        expense_sum = 0
+        income_sum = 0
+
         for i in addmoney_info:
             if i.add_money == 'Expense':
-                sum=sum+i.quantity
-        addmoney_info.sum = sum
-        sum1 = 0 
-        for i in addmoney_info:
-            if i.add_money == 'Income':
-                sum1 =sum1+i.quantity
-        addmoney_info.sum1 = sum1
-        x= user1.userprofile.Savings+addmoney_info.sum1 - addmoney_info.sum
-        y= user1.userprofile.Savings+addmoney_info.sum1 - addmoney_info.sum
-        if x<0:
-            messages.warning(request,'Your expenses exceeded your savings')
+                expense_sum += i.quantity
+            elif i.add_money == 'Income':
+                income_sum += i.quantity
+
+        # Acessa o Savings e garante que não seja None
+        current_savings = user1.userprofile.Savings or 0
+
+        # Calcula o saldo
+        x = current_savings + income_sum - expense_sum
+        y = current_savings + income_sum - expense_sum
+
+        # Verifica se as despesas excedem as economias
+        if x < 0:
+            messages.warning(request, 'Your expenses exceeded your savings')
             x = 0
-        if x>0:
+
+        # Garante que y seja zero se x for positivo
+        if x > 0:
             y = 0
+
+        # Armazena os resultados no addmoney_info
+        addmoney_info.sum = expense_sum
+        addmoney_info.sum1 = income_sum
         addmoney_info.x = abs(x)
         addmoney_info.y = abs(y)
-        return render(request,'home/stats.html',{'addmoney':addmoney_info})
+
+        return render(request, 'home/stats.html', {'addmoney': addmoney_info})
+    else:
+        return redirect('login')
 
 def expense_week(request):
     todays_date = datetime.date.today()
@@ -292,33 +310,48 @@ def expense_week(request):
     return JsonResponse({'expense_category_data': finalrep}, safe=False)
     
 def weekly(request):
-    if request.session.has_key('is_logged') :
+    if request.session.has_key('is_logged'):
         todays_date = datetime.date.today()
-        one_week_ago = todays_date-datetime.timedelta(days=7)
+        one_week_ago = todays_date - datetime.timedelta(days=7)
         user_id = request.session["user_id"]
         user1 = User.objects.get(id=user_id)
-        addmoney_info = Addmoney_info.objects.filter(user = user1,Date__gte=one_week_ago,Date__lte=todays_date)
-        sum = 0 
+
+        # Verifica se o usuário tem um UserProfile, e cria um se não existir
+        if not hasattr(user1, 'userprofile'):
+            UserProfile.objects.create(user=user1)
+
+        # Busca as informações financeiras da última semana
+        addmoney_info = Addmoney_info.objects.filter(user=user1, Date__gte=one_week_ago, Date__lte=todays_date)
+
+        # Cálculo da soma das despesas
+        expense_sum = 0
         for i in addmoney_info:
             if i.add_money == 'Expense':
-                sum=sum+i.quantity
-        addmoney_info.sum = sum
-        sum1 = 0 
+                expense_sum += i.quantity
+        addmoney_info.expense_sum = expense_sum
+
+        # Cálculo da soma das rendas
+        income_sum = 0
         for i in addmoney_info:
             if i.add_money == 'Income':
-                sum1 =sum1+i.quantity
-        addmoney_info.sum1 = sum1
-        x= user1.userprofile.Savings+addmoney_info.sum1 - addmoney_info.sum
-        y= user1.userprofile.Savings+addmoney_info.sum1 - addmoney_info.sum
-        if x<0:
-            messages.warning(request,'Your expenses exceeded your savings')
-            x = 0
-        if x>0:
-            y = 0
-        addmoney_info.x = abs(x)
-        addmoney_info.y = abs(y)
-    return render(request,'home/weekly.html',{'addmoney_info':addmoney_info})
+                income_sum += i.quantity
+        addmoney_info.income_sum = income_sum
 
+        # Atualiza o saldo do usuário com base nas despesas e rendas
+        current_savings = user1.userprofile.Savings or 0  # Caso o campo Savings esteja vazio, considera 0
+        balance_after_expense = current_savings + addmoney_info.income_sum - addmoney_info.expense_sum
+        addmoney_info.balance_after_expense = abs(balance_after_expense)
+
+        # Verifica se as despesas excederam as economias
+        if balance_after_expense < 0:
+            messages.warning(request, 'Your expenses exceeded your savings')
+            addmoney_info.negative_balance = abs(balance_after_expense)
+        else:
+            addmoney_info.positive_balance = balance_after_expense
+
+        return render(request, 'home/weekly.html', {'addmoney_info': addmoney_info})
+    else:
+        return redirect('login')
 def check(request):
     if request.method == 'POST':
         user_exists = User.objects.filter(email=request.POST['email'])
